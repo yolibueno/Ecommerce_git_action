@@ -1,0 +1,62 @@
+# Nombre del workflow que aparecerá en la pestaña "Actions" de GitHub
+name: Build and Push Docker Image
+
+# Disparadores: Este workflow se ejecutará cada vez que hagas un push a la rama 'master'
+on:
+  push:
+    branches: [ "master" ]
+
+# Trabajos (Jobs) que se ejecutarán
+jobs:
+  build-and-push:
+    # La máquina virtual donde se ejecutará el trabajo
+    runs-on: ubuntu-latest
+    
+    # Permisos necesarios para que el job pueda interactuar con el registro de paquetes de GitHub
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # 1. Checkout del código del repositorio
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Configurar Java Development Kit (JDK) 17 para compilar el proyecto
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven # Habilitar caché para las dependencias de Maven y acelerar builds futuros
+
+      # 3. Compilar el proyecto con Maven para generar el archivo .jar
+      #    El Dockerfile espera el JAR en la carpeta 'target/'
+      - name: Build with Maven
+        run: mvn -B package --file pom.xml
+
+      # 4. Iniciar sesión en el Registro de Contenedores de GitHub (GHCR)
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 5. Extraer metadatos (etiquetas y nombres) para la imagen Docker
+      #    Esto ayuda a crear un nombre de imagen estandarizado y en minúsculas.
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+
+      # 6. Construir la imagen Docker y subirla a GHCR
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .  # El contexto es el directorio raíz, como en tu docker-compose
+          file: ./docker/Dockerfile # Ruta a tu Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
